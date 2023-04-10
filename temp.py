@@ -1,18 +1,18 @@
+from flask import jsonify, request, Flask, Response
 from gensim import corpora, models
-from gensim.models import CoherenceModel
 from nltk.tokenize import sent_tokenize
 import nltk
 import pyLDAvis.gensim_models
-import pandas as pd
-
+import json
 
 nltk.download('punkt')
 
+app = Flask(__name__)
 
+@app.route('/analyze', methods=['POST'])
 def process_text():
-    # Read in the text from a file
-    with open("book_of_mormon_full_text.txt", "r") as f:
-        text = f.read()
+    req_data = request.get_json()
+    text = req_data['text']
 
     # Split the text into sentences
     sentences = sent_tokenize(text)
@@ -59,23 +59,25 @@ def process_text():
     lda_model = models.LdaModel(corpus_tfidf, num_topics=num_topics, id2word=dictionary, passes=40)
 
     # Print the top words in each topic
+    topics = []
     for i, topic in lda_model.show_topics(num_topics=num_topics):
-        print("Topic {}: {}".format(i, topic))
-
-    # Compute coherence score
-    coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
-    coherence_lda = coherence_model_lda.get_coherence()
-    print('\nCoherence Score: ', coherence_lda)
+        topics.append({
+            "id": i,
+            "top_words": topic
+        })
 
     # Visualize the topics
-    vis = pyLDAvis.gensim_models.prepare(lda_model, corpus)
-    topic_info = pd.DataFrame(vis['topic_info'])
-    topic_info = topic_info[["Category", "Term", "Freq", "Total", "loglift", "logprob"]]
-    topic_info = topic_info.sort_values(['Category', 'loglift'], ascending=[True, False])
-    topic_info = topic_info.groupby('Category').head(30)
-    vis['topic_info'] = topic_info.reset_index(drop=True)
-    pyLDAvis.display(vis)
+    vis = pyLDAvis.gensim_models.prepare(lda_model, corpus, dictionary=lda_model.id2word)
 
+    response_data = {
+        "topics": topics,
+        "visualization": json.loads(pyLDAvis.prepared_data_to_json(vis))
+    }
+    response = Response(response=json.dumps(response_data), status=200, mimetype="application/json")
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE')
+    return response
 
 if __name__ == '__main__':
-    process_text()
+    app.run()

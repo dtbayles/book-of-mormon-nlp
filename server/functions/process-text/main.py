@@ -1,18 +1,34 @@
+from flask import escape, jsonify
+import functions_framework
 from gensim import corpora, models
-from gensim.models import CoherenceModel
 from nltk.tokenize import sent_tokenize
 import nltk
 import pyLDAvis.gensim_models
-import pandas as pd
-
 
 nltk.download('punkt')
 
+@functions_framework.http
+def process_text(request):
+    """HTTP Cloud Function.
+    Args:
+        request (flask.Request): The request object.
+        <https://flask.palletsprojects.com/en/1.1.x/api/#incoming-request-data>
+    Returns:
+        The response text, or any set of values that can be turned into a
+        Response object using `make_response`
+        <https://flask.palletsprojects.com/en/1.1.x/api/#flask.make_response>.
+    """
+    request_json = request.get_json(silent=True)
+    request_args = request.args
 
-def process_text():
-    # Read in the text from a file
-    with open("book_of_mormon_full_text.txt", "r") as f:
-        text = f.read()
+    if request_json and 'text' in request_json:
+        text = request_json['text']
+    else:
+        text = ''
+
+    # # Read in the text from a file
+    # with open("book_of_mormon_full_text.txt", "r") as f:
+    #     text = f.read()
 
     # Split the text into sentences
     sentences = sent_tokenize(text)
@@ -59,23 +75,18 @@ def process_text():
     lda_model = models.LdaModel(corpus_tfidf, num_topics=num_topics, id2word=dictionary, passes=40)
 
     # Print the top words in each topic
+    topics = []
     for i, topic in lda_model.show_topics(num_topics=num_topics):
-        print("Topic {}: {}".format(i, topic))
-
-    # Compute coherence score
-    coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
-    coherence_lda = coherence_model_lda.get_coherence()
-    print('\nCoherence Score: ', coherence_lda)
+        topic_dict = {}
+        topic_dict["index"] = i
+        topic_dict["words"] = topic
+        topics.append(topic_dict)
 
     # Visualize the topics
-    vis = pyLDAvis.gensim_models.prepare(lda_model, corpus)
-    topic_info = pd.DataFrame(vis['topic_info'])
-    topic_info = topic_info[["Category", "Term", "Freq", "Total", "loglift", "logprob"]]
-    topic_info = topic_info.sort_values(['Category', 'loglift'], ascending=[True, False])
-    topic_info = topic_info.groupby('Category').head(30)
-    vis['topic_info'] = topic_info.reset_index(drop=True)
-    pyLDAvis.display(vis)
+    vis = pyLDAvis.gensim_models.prepare(lda_model, corpus, dictionary=lda_model.id2word)
 
-
-if __name__ == '__main__':
-    process_text()
+    response = jsonify({
+        "topics": topics,
+        "visualization": vis.to_dict(),
+    })
+    return response
